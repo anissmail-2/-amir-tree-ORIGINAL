@@ -20,6 +20,12 @@ db.serialize(() => {
       username TEXT UNIQUE NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
+      gender TEXT,
+      age INTEGER,
+      nationality TEXT,
+      current_location TEXT,
+      marital_status TEXT,
+      occupation TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `, (err) => {
@@ -27,6 +33,25 @@ db.serialize(() => {
       console.error('❌ Error creating users table:', err.message);
     } else {
       console.log('✅ Users table ready');
+
+      // Add profile columns to existing users table (migration)
+      const profileColumns = [
+        { name: 'gender', type: 'TEXT' },
+        { name: 'age', type: 'INTEGER' },
+        { name: 'nationality', type: 'TEXT' },
+        { name: 'current_location', type: 'TEXT' },
+        { name: 'marital_status', type: 'TEXT' },
+        { name: 'occupation', type: 'TEXT' }
+      ];
+
+      profileColumns.forEach(col => {
+        db.run(`ALTER TABLE users ADD COLUMN ${col.name} ${col.type}`, (alterErr) => {
+          // Ignore error if column already exists
+          if (alterErr && !alterErr.message.includes('duplicate column name')) {
+            console.error(`⚠️  Error adding column ${col.name}:`, alterErr.message);
+          }
+        });
+      });
     }
   });
 

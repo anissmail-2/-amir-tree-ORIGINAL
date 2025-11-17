@@ -171,6 +171,52 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ==================== USER PROFILE ROUTES ====================
+
+// Get user profile
+app.get('/api/profile', authenticateToken, (req, res) => {
+  console.log('👤 Fetching profile for user:', req.user.id);
+
+  db.get('SELECT id, username, email, gender, age, nationality, current_location, marital_status, occupation FROM users WHERE id = ?', [req.user.id], (err, user) => {
+    if (err) {
+      console.error('❌ Database error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('✅ Profile fetched successfully');
+    res.json(user);
+  });
+});
+
+// Update user profile
+app.put('/api/profile', authenticateToken, (req, res) => {
+  console.log('👤 Updating profile for user:', req.user.id);
+
+  const { gender, age, nationality, current_location, marital_status, occupation } = req.body;
+
+  db.run(
+    `UPDATE users SET gender = ?, age = ?, nationality = ?, current_location = ?, marital_status = ?, occupation = ? WHERE id = ?`,
+    [gender, age, nationality, current_location, marital_status, occupation, req.user.id],
+    function(err) {
+      if (err) {
+        console.error('❌ Database error:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log('✅ Profile updated successfully');
+      res.json({
+        success: true,
+        message: 'Profile updated successfully',
+        changes: this.changes
+      });
+    }
+  );
+});
+
 // ==================== API ROUTES ====================
 
 // 1. Upload clothing item with AI analysis
@@ -317,122 +363,148 @@ app.delete('/api/wardrobe/:id', authenticateToken, (req, res) => {
   });
 });
 
-// 4. Get AI outfit recommendation
+// 4. Get AI outfit recommendation (Enhanced with user profile)
 app.post('/api/recommend', authenticateToken, async (req, res) => {
   try {
     const { occasion, weather } = req.body;
 
-    console.log('👔 Generating outfit recommendation...');
+    console.log('👔 Generating intelligent outfit recommendation...');
     console.log('   Occasion:', occasion);
     console.log('   Weather:', weather);
 
-    // Get all wardrobe items for this user
-    db.all('SELECT * FROM wardrobe_items WHERE user_id = ?', [req.user.id], async (err, items) => {
+    // Get user profile
+    db.get('SELECT gender, age, nationality, current_location, marital_status, occupation FROM users WHERE id = ?', [req.user.id], async (err, profile) => {
       if (err) {
         console.error('❌ Database error:', err.message);
         return res.status(500).json({ error: err.message });
       }
 
-      console.log(`📦 Found ${items.length} items in wardrobe`);
+      console.log('👤 User profile:', profile);
 
-      // Create list of items for AI
-      const itemsList = items.map(item => `${item.category} (${item.color})`).join(', ');
+      // Get all wardrobe items for this user
+      db.all('SELECT * FROM wardrobe_items WHERE user_id = ?', [req.user.id], async (err, items) => {
+        if (err) {
+          console.error('❌ Database error:', err.message);
+          return res.status(500).json({ error: err.message });
+        }
 
-      let prompt;
+        console.log(`📦 Found ${items.length} items in wardrobe`);
 
-      if (items.length === 0) {
-        return res.status(400).json({ error: 'Your wardrobe is empty! Upload some clothing items first 👗👔' });
-      } else if (items.length === 1) {
-        // Creative response for single item
-        prompt = `You are a witty fashion AI with a great sense of humor! The user has only ONE item in their wardrobe: ${itemsList}.
+        if (items.length === 0) {
+          return res.status(400).json({ error: 'Your wardrobe is empty! Upload some clothing items first 👗👔' });
+        }
 
-Current weather: ${weather.temperature}°C, ${weather.condition}
+        // Create detailed list of items for AI with ID references
+        const itemsListDetailed = items.map((item, idx) =>
+          `[${idx + 1}] ${item.category} - ${item.color} (${item.description || 'No description'})`
+        ).join('\n');
+
+        // Build user context
+        const userContext = [];
+        if (profile.gender) userContext.push(`Gender: ${profile.gender}`);
+        if (profile.age) userContext.push(`Age: ${profile.age}`);
+        if (profile.nationality) userContext.push(`Nationality: ${profile.nationality}`);
+        if (profile.current_location) userContext.push(`Location: ${profile.current_location}`);
+        if (profile.marital_status) userContext.push(`Marital Status: ${profile.marital_status}`);
+        if (profile.occupation) userContext.push(`Occupation: ${profile.occupation}`);
+
+        const userContextString = userContext.length > 0 ? userContext.join('\n') : 'No profile information provided';
+
+        // Enhanced intelligent prompt
+        const prompt = `You are an expert AI fashion stylist with deep understanding of style, culture, and personal context.
+
+USER PROFILE:
+${userContextString}
+
+AVAILABLE WARDROBE ITEMS:
+${itemsListDetailed}
+
+CONTEXT:
+Weather: ${weather.temperature}°C, ${weather.condition}
 Occasion: ${occasion}
 
-Be creative and funny! You could:
-- Suggest what else they should buy to complete an outfit
-- Make a playful comment like "What am I supposed to be creative with? Just this ${items[0].category}? 😅"
-- Give styling tips for how to make that one piece shine
-- Recommend complementary items they should add to their wardrobe
+TASK:
+1. Analyze the user's profile (age, gender, occupation, culture, location) to understand their style needs
+2. Consider the weather and occasion requirements
+3. Select 2-4 items from the AVAILABLE WARDROBE that create a complete, appropriate outfit
+4. Identify ANY missing items that would complete or enhance this outfit (items NOT in their wardrobe)
+5. Provide culturally sensitive and age-appropriate suggestions
+6. Consider professional requirements if occupation is relevant
+
+IMPORTANT:
+- ONLY pick items from the numbered list above
+- Reference items by their number [1], [2], etc.
+- Be specific about what items to wear
+- Suggest missing items that would complete the look
+- Consider cultural dress codes if nationality/location provided
+- Be mindful of professional dress codes for work occasions
 
 Respond with valid JSON:
 {
-  "recommended_categories": ["${items[0].category}"],
-  "explanation": "Your witty, helpful response that acknowledges they only have one item and provides creative suggestions"
+  "selected_items": [1, 2, 3],
+  "explanation": "Detailed explanation considering their profile, why this outfit works, and how it suits their personal context",
+  "missing_items": ["Item type 1", "Item type 2"],
+  "missing_items_explanation": "Why these items would complete the outfit and specific suggestions for what to buy"
 }`;
-      } else {
-        // Normal recommendation for 2+ items
-        prompt = `You are a professional fashion stylist AI assistant.
 
-Available wardrobe items: ${itemsList}
+        console.log('🤖 Asking Gemini AI for intelligent recommendation...');
 
-Current weather: ${weather.temperature}°C, ${weather.condition}
-Occasion: ${occasion}
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
 
-Task: Select 2-3 items from the available wardrobe that work well together for this weather and occasion. Explain why this combination is perfect.
+        console.log('🤖 AI Response:', text);
 
-Respond ONLY with valid JSON in this exact format:
-{
-  "recommended_categories": ["category1", "category2"],
-  "explanation": "Detailed explanation of why this outfit works for the weather and occasion"
-}`;
-      }
+        // Extract JSON
+        const jsonMatch = text.match(/\{[\s\S]*?\}/);
 
-      console.log('🤖 Asking Gemini AI for recommendation...');
+        if (jsonMatch) {
+          const recommendation = JSON.parse(jsonMatch[0]);
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+          console.log('✅ AI Recommendation:', recommendation);
 
-      console.log('🤖 AI Response:', text);
-
-      // Extract JSON
-      const jsonMatch = text.match(/\{[\s\S]*?\}/);
-
-      if (jsonMatch) {
-        const recommendation = JSON.parse(jsonMatch[0]);
-
-        console.log('✅ AI Recommendation:', recommendation);
-
-        // Find matching items from wardrobe
-        const selectedItems = [];
-        for (let cat of recommendation.recommended_categories) {
-          const found = items.find(item =>
-            item.category.toLowerCase().includes(cat.toLowerCase()) ||
-            cat.toLowerCase().includes(item.category.toLowerCase())
-          );
-          if (found && !selectedItems.find(i => i.id === found.id)) {
-            selectedItems.push(found);
-          }
-        }
-
-        console.log(`✅ Selected ${selectedItems.length} matching items`);
-
-        // Save to outfit history
-        const outfit_items_json = JSON.stringify(selectedItems.map(item => item.id));
-        db.run(
-          `INSERT INTO outfit_history (user_id, occasion, weather_temp, weather_condition, outfit_items, ai_explanation)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [req.user.id, occasion, weather.temperature, weather.condition, outfit_items_json, recommendation.explanation],
-          (err) => {
-            if (err) {
-              console.error('⚠️ Error saving outfit history:', err.message);
-            } else {
-              console.log('✅ Outfit saved to history');
+          // Get selected items by index
+          const selectedItems = [];
+          if (recommendation.selected_items && Array.isArray(recommendation.selected_items)) {
+            for (let idx of recommendation.selected_items) {
+              const itemIndex = idx - 1; // Convert to 0-based index
+              if (itemIndex >= 0 && itemIndex < items.length) {
+                selectedItems.push(items[itemIndex]);
+              }
             }
           }
-        );
 
-        res.json({
-          items: selectedItems,
-          explanation: recommendation.explanation,
-          weather: weather,
-          occasion: occasion
-        });
-      } else {
-        console.error('⚠️ Could not parse AI response as JSON');
-        res.status(500).json({ error: 'Could not generate recommendation' });
-      }
+          console.log(`✅ Selected ${selectedItems.length} matching items`);
+
+          // Save to outfit history
+          const outfit_items_json = JSON.stringify(selectedItems.map(item => item.id));
+          db.run(
+            `INSERT INTO outfit_history (user_id, occasion, weather_temp, weather_condition, outfit_items, ai_explanation)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [req.user.id, occasion, weather.temperature, weather.condition, outfit_items_json, recommendation.explanation],
+            (err) => {
+              if (err) {
+                console.error('⚠️ Error saving outfit history:', err.message);
+              } else {
+                console.log('✅ Outfit saved to history');
+              }
+            }
+          );
+
+          res.json({
+            items: selectedItems,
+            explanation: recommendation.explanation,
+            missing_items: recommendation.missing_items || [],
+            missing_items_explanation: recommendation.missing_items_explanation || '',
+            weather: weather,
+            occasion: occasion,
+            user_profile: profile
+          });
+        } else {
+          console.error('⚠️ Could not parse AI response as JSON');
+          res.status(500).json({ error: 'Could not generate recommendation' });
+        }
+      });
     });
   } catch (error) {
     console.error('❌ Recommendation error:', error.message);

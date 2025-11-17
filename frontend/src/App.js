@@ -6,6 +6,7 @@ import Signup from './components/Signup';
 import Wardrobe from './components/Wardrobe';
 import Upload from './components/Upload';
 import Recommend from './components/Recommend';
+import Profile from './components/Profile';
 
 // Configure axios to send auth token with all requests
 axios.interceptors.request.use(
@@ -87,6 +88,7 @@ function App() {
           <button onClick={() => setCurrentPage('wardrobe')}>My Wardrobe</button>
           <button onClick={() => setCurrentPage('upload')}>Upload Item</button>
           <button onClick={() => setCurrentPage('recommend')}>Get Recommendation</button>
+          <button onClick={() => setCurrentPage('profile')}>My Profile</button>
           <button onClick={handleLogout}>Logout</button>
         </div>
       </nav>
@@ -95,6 +97,7 @@ function App() {
         {currentPage === 'wardrobe' && <Wardrobe />}
         {currentPage === 'upload' && <Upload />}
         {currentPage === 'recommend' && <Recommend />}
+        {currentPage === 'profile' && <Profile />}
       </div>
     </div>
   );

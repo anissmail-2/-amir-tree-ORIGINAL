@@ -85,8 +85,30 @@ function Recommend() {
           <div className="ai-explanation">
             <h3>🤖 AI Stylist Explanation:</h3>
             <p>{recommendation.explanation}</p>
+          </div>
+
+          {recommendation.missing_items && recommendation.missing_items.length > 0 && (
+            <div className="missing-items-section">
+              <h3>🛍️ Suggested Items to Complete Your Look</h3>
+              <div className="missing-items-list">
+                {recommendation.missing_items.map((item, index) => (
+                  <div key={index} className="missing-item">
+                    <span className="missing-item-icon">+</span>
+                    <span className="missing-item-name">{item}</span>
+                  </div>
+                ))}
+              </div>
+              {recommendation.missing_items_explanation && (
+                <div className="missing-items-explanation">
+                  <p>{recommendation.missing_items_explanation}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="recommendation-footer">
             <p style={{fontSize: '12px', color: '#666'}}>
-              Powered by Gemini 2.0 Flash + OpenWeatherMap API
+              Powered by Gemini 2.5 Flash + OpenWeatherMap API
             </p>
           </div>
         </div>
