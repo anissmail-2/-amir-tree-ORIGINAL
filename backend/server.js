@@ -52,13 +52,13 @@ const upload = multer({
 
 // Gemini AI Configuration
 // IMPORTANT: Replace with your actual API key!
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyCjbcdTSnEEY5Ja3ud1KdyAaj93zMRYs1wRE';
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
 // OpenWeatherMap API Key
 // IMPORTANT: Replace with your actual API key!
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || 'YOUR_OPENWEATHER_API_KEY_HERE';
+const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || '8eb8363ac6521e90ef4664dd5b00ae39';
 
 // ==================== API ROUTES ====================
 
