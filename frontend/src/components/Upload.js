@@ -19,17 +19,28 @@ function Upload() {
   }, [aiAnalyses]);
 
   const handleFileSelect = (e) => {
+    e.stopPropagation(); // Prevent event bubbling
     const files = Array.from(e.target.files);
+
+    if (files.length === 0) return; // No files selected
+
     setSelectedFiles(files);
 
     const filePreviews = files.map(file => URL.createObjectURL(file));
     setPreviews(filePreviews);
     setAiAnalyses([]);
+    setMessage(''); // Clear any previous messages
   };
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (selectedFiles.length === 0) return;
+    e.stopPropagation();
+
+    // Ensure we have files to upload
+    if (selectedFiles.length === 0) {
+      setMessage('⚠️ Please select at least one image first');
+      return;
+    }
 
     setLoading(true);
     setMessage('');
@@ -53,6 +64,13 @@ function Upload() {
 
       setAiAnalyses(allAnalyses);
       setMessage(`✅ ${selectedFiles.length} item(s) uploaded successfully!`);
+
+      // Clear the file input after successful upload to prevent re-uploading
+      const fileInput = document.getElementById('file-input');
+      if (fileInput) {
+        fileInput.value = '';
+      }
+
     } catch (error) {
       setMessage('❌ Upload failed: ' + (error.response?.data?.error || error.message));
     } finally {
@@ -66,39 +84,57 @@ function Upload() {
       <h1>Upload Clothing Items</h1>
       <p>✨ AI will automatically analyze your images (select multiple!)</p>
 
-      <form onSubmit={handleUpload}>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleFileSelect}
-          multiple
-          required
-        />
+      <form onSubmit={handleUpload} autoComplete="off">
+        <div className="file-input-wrapper">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileSelect}
+            multiple
+            id="file-input"
+          />
+          <label htmlFor="file-input" style={{display: 'block', marginBottom: '10px', color: '#666'}}>
+            Choose images from your device
+          </label>
+        </div>
 
-        {previews.length > 0 && (
-          <div className="preview-container" style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-            gap: '15px',
-            marginTop: '20px'
-          }}>
-            {previews.map((preview, index) => (
-              <div key={index} className="preview" style={{
-                border: '2px solid #ddd',
-                borderRadius: '8px',
-                padding: '10px'
-              }}>
-                <img src={preview} alt={`Preview ${index + 1}`} style={{
-                  width: '100%',
-                  height: '200px',
-                  objectFit: 'cover',
-                  borderRadius: '5px'
-                }} />
-                <p style={{fontSize: '12px', textAlign: 'center', marginTop: '5px'}}>
-                  Image {index + 1}
-                </p>
-              </div>
-            ))}
+        {previews.length > 0 && !loading && aiAnalyses.length === 0 && (
+          <div>
+            <p style={{
+              backgroundColor: '#fff3cd',
+              color: '#856404',
+              padding: '10px',
+              borderRadius: '5px',
+              marginTop: '15px',
+              textAlign: 'center',
+              fontWeight: 'bold'
+            }}>
+              ⚠️ Images selected but NOT uploaded yet! Click the button below to upload.
+            </p>
+            <div className="preview-container" style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: '15px',
+              marginTop: '20px'
+            }}>
+              {previews.map((preview, index) => (
+                <div key={index} className="preview" style={{
+                  border: '2px solid #ddd',
+                  borderRadius: '8px',
+                  padding: '10px'
+                }}>
+                  <img src={preview} alt={`Preview ${index + 1}`} style={{
+                    width: '100%',
+                    height: '200px',
+                    objectFit: 'cover',
+                    borderRadius: '5px'
+                  }} />
+                  <p style={{fontSize: '12px', textAlign: 'center', marginTop: '5px'}}>
+                    Image {index + 1}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -157,9 +193,27 @@ function Upload() {
           </div>
         )}
 
-        <button type="submit" disabled={selectedFiles.length === 0 || loading} style={{marginTop: '20px'}}>
-          {loading ? 'Uploading...' : `Upload ${selectedFiles.length > 0 ? selectedFiles.length : ''} Item${selectedFiles.length !== 1 ? 's' : ''}`}
-        </button>
+        {previews.length > 0 && aiAnalyses.length === 0 && (
+          <button
+            type="submit"
+            disabled={selectedFiles.length === 0 || loading}
+            style={{
+              marginTop: '20px',
+              backgroundColor: loading ? '#ccc' : '#4CAF50',
+              color: 'white',
+              padding: '15px 30px',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              width: '100%',
+              transition: 'all 0.3s'
+            }}
+          >
+            {loading ? '⏳ Uploading & Analyzing...' : `🚀 Upload ${selectedFiles.length} Item${selectedFiles.length !== 1 ? 's' : ''} to Wardrobe`}
+          </button>
+        )}
       </form>
 
       {message && <p className="message">{message}</p>}

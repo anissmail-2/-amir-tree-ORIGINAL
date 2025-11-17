@@ -43,7 +43,7 @@ This starts both backend and frontend servers!
    - Delete items
 
 3. **🤖 AI Outfit Recommendations**
-   - Based on current weather (OpenWeatherMap API)
+   - Based on current weather (Open-Meteo API)
    - Occasion-based (Casual, Formal, Business, Party, Sports)
    - AI explains why the outfit works
 
@@ -62,7 +62,7 @@ This starts both backend and frontend servers!
 - JWT authentication
 - bcrypt password hashing
 - **Google Gemini AI** (image analysis)
-- **OpenWeatherMap API** (weather data)
+- **Open-Meteo API** (weather data - free, no API key needed!)
 
 ### Frontend:
 - React 19
@@ -143,13 +143,13 @@ The backend requires API keys in `backend/.env`:
 
 ```env
 GEMINI_API_KEY=your_key_here
-OPENWEATHER_API_KEY=your_key_here
+JWT_SECRET=your_strong_secret_here
 PORT=5000
 ```
 
 **Get API Keys:**
 - **Gemini AI:** https://aistudio.google.com/app/apikey
-- **OpenWeather:** https://openweathermap.org/api
+- **JWT Secret:** Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
 ---
 
@@ -172,7 +172,7 @@ PORT=5000
 - ✅ User Authentication System
 - ✅ Wardrobe Management
 - ✅ AI Image Analysis (Gemini)
-- ✅ Weather Integration (OpenWeatherMap)
+- ✅ Weather Integration (Open-Meteo - Free!)
 - ✅ AI Outfit Recommendations
 - ✅ Outfit History Tracking
 - ✅ Sustainability Analytics

@@ -108,7 +108,7 @@ function Recommend() {
 
           <div className="recommendation-footer">
             <p style={{fontSize: '12px', color: '#666'}}>
-              Powered by Gemini 2.5 Flash + OpenWeatherMap API
+              Powered by Gemini 2.5 Flash + Open-Meteo API
             </p>
           </div>
         </div>

@@ -7,9 +7,10 @@ Express.js backend with SQLite database and Gemini AI integration.
 - ✅ Express.js REST API
 - ✅ SQLite database for data persistence
 - ✅ Gemini 2.0 Flash AI for image analysis
-- ✅ OpenWeatherMap API integration
+- ✅ Open-Meteo API integration (free weather data, no API key needed!)
 - ✅ Image upload with Multer
 - ✅ CORS enabled for React frontend
+- ✅ JWT authentication with bcrypt password hashing
 
 ## Setup
 
@@ -18,13 +19,16 @@ Express.js backend with SQLite database and Gemini AI integration.
    npm install
    ```
 
-2. **Get API Keys:**
-   - **Gemini API:** https://aistudio.google.com/app/apikey
-   - **OpenWeatherMap API:** https://openweathermap.org/api
+2. **Create `.env` file:**
+   Copy `.env.example` to `.env` and fill in your values:
+   ```bash
+   cp .env.example .env
+   ```
 
-3. **Add API keys to `server.js`:**
-   - Line 48: Replace `YOUR_GEMINI_API_KEY_HERE` with your Gemini key
-   - Line 53: Replace `YOUR_OPENWEATHER_API_KEY_HERE` with your weather key
+3. **Get API Keys:**
+   - **Gemini API:** https://aistudio.google.com/app/apikey
+   - **JWT Secret:** Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+   - **Weather:** No API key needed! Using Open-Meteo (free service)
 
 4. **Run the server:**
    ```bash

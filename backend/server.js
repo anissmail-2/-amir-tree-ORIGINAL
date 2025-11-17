@@ -13,7 +13,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 // ==================== MIDDLEWARE ====================
 app.use(cors());
@@ -50,39 +50,21 @@ const upload = multer({
   }
 });
 
-// Gemini AI Configuration - Multiple API Keys for Redundancy
-const API_KEYS = [
-  { key: "AIzaSyCEm1zKOnlASP9AMENd21tkyT1BtHjx5wU", email: "sazman539@gmail.com" },
-  { key: "AIzaSyCvO6ep8lmbzSw5vjTzhiqbkW0Bb3P6wBo", email: "anissmail22@gmail.com" },
-  { key: "AIzaSyDuW4ld6jnO3SPocwJbUK1xTI3oMZs7lVI", email: "anissmail2@gmail.com" },
-  { key: "AIzaSyCPBG-HAP9IzFluhD-YdJZ0AWzVEPVOiOE", email: "agui80759@gmail.com" },
-  { key: "AIzaSyDx4P3eu2OXwZA6cadGdkam53HC8Bf4RiQ", email: "Senfour.anis00@gmail.com" },
-  { key: "AIzaSyBIx8CIMd0Zz04y1R0jNxlScVzU5Z3NZlo", email: "anissmail222@gmail.com" },
-  { key: "AIzaSyDqrMcJ9WkqEahDQpk8iqoLwkCJTPP0cAQ", email: "anis.dk99@gmail.com" },
-  { key: "AIzaSyDPoqXWI-LK6i1UNdqxNLFk8y1weA6xfR0", email: "anissmail534@gmail.com" },
-  { key: "AIzaSyDXhkg9aQdzyOBC1nBlf3ETKON7mEr668M", email: "bah21105@gmail.com" }
-];
+// Gemini AI Configuration
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-let currentKeyIndex = 0;
-
-// Helper function to get next API key
-function getNextApiKey() {
-  const apiKey = API_KEYS[currentKeyIndex];
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-  return apiKey;
+if (!GEMINI_API_KEY) {
+  console.error('❌ GEMINI_API_KEY not found in environment variables!');
+  console.error('   Please add it to your .env file');
 }
 
-// Helper function to call Gemini with retry logic and multiple keys
-async function callGeminiWithRetry(prompt, imageData = null, maxRetries = 5) {
+// Helper function to call Gemini with retry logic
+async function callGeminiWithRetry(prompt, imageData = null, maxRetries = 3) {
   let lastError = null;
-  const startKeyIndex = currentKeyIndex;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const apiKeyInfo = getNextApiKey();
-      console.log(`🔑 Attempt ${attempt + 1}/${maxRetries} - Using API key: ${apiKeyInfo.email}`);
-
-      const genAI = new GoogleGenerativeAI(apiKeyInfo.key);
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
       let result;
@@ -95,20 +77,18 @@ async function callGeminiWithRetry(prompt, imageData = null, maxRetries = 5) {
       const response = await result.response;
       const text = response.text();
 
-      console.log(`✅ Success with API key: ${apiKeyInfo.email}`);
       return text;
 
     } catch (error) {
       lastError = error;
-      console.error(`❌ Attempt ${attempt + 1} failed: ${error.message}`);
+      console.error(`❌ Gemini API attempt ${attempt + 1}/${maxRetries} failed:`, error.message);
 
-      // If it's a 503 (overloaded) or 429 (quota exceeded), try next key
+      // If it's a 503 (overloaded) or 429 (quota exceeded), retry with backoff
       if (error.message.includes('503') || error.message.includes('429') ||
           error.message.includes('overloaded') || error.message.includes('quota')) {
 
-        // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
-        const delay = Math.min(500 * Math.pow(2, attempt), 8000);
-        console.log(`⏳ Waiting ${delay}ms before next attempt...`);
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -119,17 +99,15 @@ async function callGeminiWithRetry(prompt, imageData = null, maxRetries = 5) {
   }
 
   // If all retries failed
-  throw new Error(`All ${maxRetries} API attempts failed. Last error: ${lastError?.message || 'Unknown error'}`);
+  throw new Error(`Gemini API failed after ${maxRetries} attempts. Last error: ${lastError?.message || 'Unknown error'}`);
 }
 
-// No API key needed for Open-Meteo weather API (free service)
-
-// JWT Secret
+// JWT Secret - IMPORTANT: Set a strong secret in .env for production!
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// ==================== MIDDLEWARE ====================
+// ==================== AUTHENTICATION MIDDLEWARE ====================
 
-// Authentication middleware
+// Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -232,8 +210,6 @@ app.post('/api/auth/login', async (req, res) => {
 
 // Get user profile
 app.get('/api/profile', authenticateToken, (req, res) => {
-  console.log('👤 Fetching profile for user:', req.user.id);
-
   db.get('SELECT id, username, email, gender, age, nationality, current_location, marital_status, occupation FROM users WHERE id = ?', [req.user.id], (err, user) => {
     if (err) {
       console.error('❌ Database error:', err.message);
@@ -244,15 +220,12 @@ app.get('/api/profile', authenticateToken, (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log('✅ Profile fetched successfully');
     res.json(user);
   });
 });
 
 // Update user profile
 app.put('/api/profile', authenticateToken, (req, res) => {
-  console.log('👤 Updating profile for user:', req.user.id);
-
   const { gender, age, nationality, current_location, marital_status, occupation } = req.body;
 
   db.run(
@@ -264,7 +237,6 @@ app.put('/api/profile', authenticateToken, (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
-      console.log('✅ Profile updated successfully');
       res.json({
         success: true,
         message: 'Profile updated successfully',
@@ -313,8 +285,6 @@ app.post('/api/upload', authenticateToken, upload.single('image'), async (req, r
       return res.status(400).json({ error: 'No image file uploaded' });
     }
 
-    console.log('📤 Uploading image:', req.file.filename);
-
     const imagePath = req.file.path;
     const relativeImagePath = 'uploads/' + req.file.filename;
 
@@ -327,7 +297,6 @@ app.post('/api/upload', authenticateToken, upload.single('image'), async (req, r
       }
 
       if (duplicate) {
-        console.log('⚠️ Duplicate image detected:', duplicate.category);
         // Delete the newly uploaded file since it's a duplicate
         fs.unlinkSync(imagePath);
         return res.status(400).json({
@@ -343,8 +312,6 @@ app.post('/api/upload', authenticateToken, upload.single('image'), async (req, r
       // Read image and convert to base64
       const imageBuffer = fs.readFileSync(imagePath);
       const base64Image = imageBuffer.toString('base64');
-
-      console.log('🤖 Analyzing image with Gemini AI...');
 
       // Analyze with Gemini AI
       const prompt = `You are a witty and intelligent AI fashion assistant with a great sense of humor! Analyze this image.
@@ -376,7 +343,6 @@ Be creative, be funny when appropriate, but always be helpful! If someone upload
             mimeType: req.file.mimetype
           }
         });
-        console.log('🤖 AI Response:', text);
       } catch (error) {
         console.error('❌ All API attempts failed:', error.message);
         // Return user-friendly error without crashing
@@ -392,7 +358,6 @@ Be creative, be funny when appropriate, but always be helpful! If someone upload
 
       if (jsonMatch) {
         aiAnalysis = JSON.parse(jsonMatch[0]);
-        console.log('✅ AI Analysis:', aiAnalysis);
       } else {
         // Fallback if AI doesn't return JSON - but keep the AI's text response
         aiAnalysis = {
@@ -401,7 +366,6 @@ Be creative, be funny when appropriate, but always be helpful! If someone upload
           gender: 'N/A',
           description: text || 'The AI got confused - maybe try a clearer image? 🤔'
         };
-        console.log('⚠️ Using fallback with AI text:', text);
       }
 
       // Save to database
@@ -413,8 +377,6 @@ Be creative, be funny when appropriate, but always be helpful! If someone upload
             console.error('❌ Database error:', err.message);
             return res.status(500).json({ error: err.message });
           }
-
-          console.log('✅ Item saved to database with ID:', this.lastID);
 
           res.json({
             success: true,
@@ -445,15 +407,12 @@ Be creative, be funny when appropriate, but always be helpful! If someone upload
 
 // 2. Get all wardrobe items
 app.get('/api/wardrobe', authenticateToken, (req, res) => {
-  console.log('📋 Fetching wardrobe items for user:', req.user.id);
-
   db.all('SELECT * FROM wardrobe_items WHERE user_id = ? ORDER BY created_at DESC', [req.user.id], (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err.message);
       return res.status(500).json({ error: err.message });
     }
 
-    console.log(`✅ Found ${rows.length} items`);
     res.json(rows);
   });
 });
@@ -461,7 +420,6 @@ app.get('/api/wardrobe', authenticateToken, (req, res) => {
 // 3. Delete wardrobe item
 app.delete('/api/wardrobe/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
-  console.log('🗑️ Deleting item:', id);
 
   // Get image path first to delete file
   db.get('SELECT image_path FROM wardrobe_items WHERE id = ? AND user_id = ?', [id, req.user.id], (err, row) => {
@@ -475,7 +433,6 @@ app.delete('/api/wardrobe/:id', authenticateToken, (req, res) => {
       const fullPath = path.join(__dirname, row.image_path);
       if (fs.existsSync(fullPath)) {
         fs.unlinkSync(fullPath);
-        console.log('🗑️ Deleted image file:', row.image_path);
       }
     }
 
@@ -486,7 +443,6 @@ app.delete('/api/wardrobe/:id', authenticateToken, (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
-      console.log('✅ Item deleted from database');
       res.json({ success: true, deletedRows: this.changes });
     });
   });
@@ -497,18 +453,12 @@ app.post('/api/recommend', authenticateToken, async (req, res) => {
   try {
     const { occasion, weather } = req.body;
 
-    console.log('👔 Generating intelligent outfit recommendation...');
-    console.log('   Occasion:', occasion);
-    console.log('   Weather:', weather);
-
     // Get user profile
     db.get('SELECT gender, age, nationality, current_location, marital_status, occupation FROM users WHERE id = ?', [req.user.id], async (err, profile) => {
       if (err) {
         console.error('❌ Database error:', err.message);
         return res.status(500).json({ error: err.message });
       }
-
-      console.log('👤 User profile:', profile);
 
       // Get all VALID clothing items for this user (exclude "Not Clothing" and similar)
       db.all(
@@ -522,8 +472,6 @@ app.post('/api/recommend', authenticateToken, async (req, res) => {
           console.error('❌ Database error:', err.message);
           return res.status(500).json({ error: err.message });
         }
-
-        console.log(`📦 Found ${items.length} items in wardrobe`);
 
         if (items.length === 0) {
           return res.status(400).json({ error: 'Your wardrobe is empty! Upload some clothing items first 👗👔' });
@@ -595,12 +543,9 @@ Respond with valid JSON:
   "missing_items_explanation": "Concise 1-2 sentence explanation of why these items are needed"
 }`;
 
-        console.log('🤖 Asking Gemini AI for intelligent recommendation...');
-
         let text;
         try {
           text = await callGeminiWithRetry(prompt);
-          console.log('🤖 AI Response:', text);
         } catch (error) {
           console.error('❌ All API attempts failed:', error.message);
           return res.status(503).json({
@@ -615,8 +560,6 @@ Respond with valid JSON:
         if (jsonMatch) {
           const recommendation = JSON.parse(jsonMatch[0]);
 
-          console.log('✅ AI Recommendation:', recommendation);
-
           // Get selected items by index
           const selectedItems = [];
           if (recommendation.selected_items && Array.isArray(recommendation.selected_items)) {
@@ -628,8 +571,6 @@ Respond with valid JSON:
             }
           }
 
-          console.log(`✅ Selected ${selectedItems.length} matching items`);
-
           // Save to outfit history
           const outfit_items_json = JSON.stringify(selectedItems.map(item => item.id));
           db.run(
@@ -639,8 +580,6 @@ Respond with valid JSON:
             (err) => {
               if (err) {
                 console.error('⚠️ Error saving outfit history:', err.message);
-              } else {
-                console.log('✅ Outfit saved to history');
               }
             }
           );
@@ -681,8 +620,6 @@ Respond with valid JSON:
 // 5. Get weather data from Open-Meteo API (Free, no API key required!)
 app.get('/api/weather', async (req, res) => {
   try {
-    console.log('🌤️ Fetching weather data...');
-
     // Abu Dhabi coordinates
     const latitude = 24.4539;
     const longitude = 54.3773;
@@ -695,7 +632,6 @@ app.get('/api/weather', async (req, res) => {
     const data = await response.json();
 
     if (!data.current) {
-      console.log('⚠️ Weather API error, using fallback data');
       return res.json({
         temperature: 25,
         condition: 'clear',
@@ -726,7 +662,6 @@ app.get('/api/weather', async (req, res) => {
       description: `Temperature: ${Math.round(data.current.temperature_2m)}°C, Humidity: ${data.current.relative_humidity_2m}%`
     };
 
-    console.log('✅ Weather data:', weatherData);
     res.json(weatherData);
   } catch (error) {
     console.error('❌ Weather API error:', error.message);
@@ -741,8 +676,6 @@ app.get('/api/weather', async (req, res) => {
 
 // 6. Get outfit history
 app.get('/api/outfit-history', authenticateToken, (req, res) => {
-  console.log('📜 Fetching outfit history for user:', req.user.id);
-
   db.all(
     'SELECT * FROM outfit_history WHERE user_id = ? ORDER BY worn_date DESC LIMIT 20',
     [req.user.id],
@@ -752,7 +685,6 @@ app.get('/api/outfit-history', authenticateToken, (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
-      console.log(`✅ Found ${rows.length} outfit history items`);
       res.json(rows);
     }
   );
@@ -760,8 +692,6 @@ app.get('/api/outfit-history', authenticateToken, (req, res) => {
 
 // 7. Get analytics/sustainability metrics
 app.get('/api/analytics', authenticateToken, (req, res) => {
-  console.log('📊 Fetching analytics for user:', req.user.id);
-
   // Get total items
   db.get('SELECT COUNT(*) as total FROM wardrobe_items WHERE user_id = ?', [req.user.id], (err, countRow) => {
     if (err) {
@@ -795,7 +725,6 @@ app.get('/api/analytics', authenticateToken, (req, res) => {
               usageRate: countRow.total > 0 ? ((mostWorn.length / countRow.total) * 100).toFixed(1) : 0
             };
 
-            console.log('✅ Analytics:', analytics);
             res.json(analytics);
           }
         );
@@ -825,18 +754,8 @@ app.listen(PORT, () => {
   console.log('║   🤖 AI Wardrobe Backend Server       ║');
   console.log('╚════════════════════════════════════════╝');
   console.log(`✅ Server running on http://localhost:${PORT}`);
-  console.log(`📁 Uploads folder: ${path.join(__dirname, 'uploads')}`);
+  console.log(`📁 Uploads: ${path.join(__dirname, 'uploads')}`);
   console.log(`💾 Database: ${path.join(__dirname, 'wardrobe.db')}`);
-  console.log('\n📡 Available endpoints:');
-  console.log('   POST   /api/upload           - Upload clothing item with AI analysis');
-  console.log('   GET    /api/wardrobe         - Get all wardrobe items');
-  console.log('   DELETE /api/wardrobe/:id     - Delete an item');
-  console.log('   POST   /api/recommend        - Get AI outfit recommendation');
-  console.log('   GET    /api/weather          - Get current weather (Open-Meteo - Free!)');
-  console.log('   GET    /api/health           - Health check');
-  console.log('\n✅ Using free APIs:');
-  console.log('   - 9 Gemini API keys with auto-retry');
-  console.log('   - Open-Meteo weather (no API key needed)');
   console.log('\n🚀 Ready to accept requests!\n');
 });
 
