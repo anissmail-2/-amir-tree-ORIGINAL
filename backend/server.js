@@ -38,11 +38,8 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (extname && mimetype) {
+    // Accept any image format by checking if mimetype starts with 'image/'
+    if (file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
       cb(new Error('Only image files are allowed!'));
