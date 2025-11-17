@@ -62,19 +62,7 @@ function App() {
 
   if (!user) {
     if (authMode === 'signup') {
-      return (
-        <>
-          <Signup onSignupSuccess={handleSignup} />
-          <div style={{ textAlign: 'center', marginTop: '10px' }}>
-            <span
-              onClick={() => setAuthMode('login')}
-              style={{ cursor: 'pointer', color: '#007bff' }}
-            >
-              Already have an account? Login here
-            </span>
-          </div>
-        </>
-      );
+      return <Signup onSignupSuccess={handleSignup} onSwitchToLogin={() => setAuthMode('login')} />;
     }
 
     return <Login onLogin={handleLogin} onSwitchToSignup={() => setAuthMode('signup')} />;

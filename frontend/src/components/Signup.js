@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import API_BASE_URL from '../config';
 
-function Signup({ onSignupSuccess }) {
+function Signup({ onSignupSuccess, onSwitchToLogin }) {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -117,6 +117,13 @@ function Signup({ onSignupSuccess }) {
             {loading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
+
+        <p className="switch-auth">
+          Already have an account?{' '}
+          <span onClick={onSwitchToLogin} className="link">
+            Login here
+          </span>
+        </p>
       </div>
     </div>
   );

@@ -122,13 +122,7 @@ async function callGeminiWithRetry(prompt, imageData = null, maxRetries = 5) {
   throw new Error(`All ${maxRetries} API attempts failed. Last error: ${lastError?.message || 'Unknown error'}`);
 }
 
-// OpenWeatherMap API Key
-// API key loaded from .env file
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
-if (!OPENWEATHER_API_KEY) {
-  console.error('ERROR: OPENWEATHER_API_KEY not found in .env file');
-  process.exit(1);
-}
+// No API key needed for Open-Meteo weather API (free service)
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -684,33 +678,52 @@ Respond with valid JSON:
   }
 });
 
-// 5. Get weather data from OpenWeatherMap API
+// 5. Get weather data from Open-Meteo API (Free, no API key required!)
 app.get('/api/weather', async (req, res) => {
   try {
     console.log('🌤️ Fetching weather data...');
 
-    const city = 'Abu Dhabi';
-    const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${OPENWEATHER_API_KEY}&units=metric`;
+    // Abu Dhabi coordinates
+    const latitude = 24.4539;
+    const longitude = 54.3773;
+
+    // Open-Meteo API - completely free, no API key needed
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=auto`;
 
     const fetch = (await import('node-fetch')).default;
     const response = await fetch(url);
     const data = await response.json();
 
-    if (data.cod !== 200) {
+    if (!data.current) {
       console.log('⚠️ Weather API error, using fallback data');
       return res.json({
         temperature: 25,
-        condition: 'sunny',
+        condition: 'clear',
         source: 'fallback'
       });
     }
 
+    // Map WMO weather codes to simple conditions
+    const weatherCodeMap = {
+      0: 'clear',
+      1: 'clear', 2: 'partly_cloudy', 3: 'cloudy',
+      45: 'foggy', 48: 'foggy',
+      51: 'drizzle', 53: 'drizzle', 55: 'drizzle',
+      61: 'rain', 63: 'rain', 65: 'rain',
+      71: 'snow', 73: 'snow', 75: 'snow',
+      80: 'rain', 81: 'rain', 82: 'rain',
+      95: 'thunderstorm', 96: 'thunderstorm', 99: 'thunderstorm'
+    };
+
+    const weatherCode = data.current.weather_code;
+    const condition = weatherCodeMap[weatherCode] || 'clear';
+
     const weatherData = {
-      temperature: Math.round(data.main.temp),
-      condition: data.weather[0].main.toLowerCase(),
-      description: data.weather[0].description,
-      humidity: data.main.humidity,
-      source: 'openweathermap'
+      temperature: Math.round(data.current.temperature_2m),
+      condition: condition,
+      humidity: data.current.relative_humidity_2m,
+      source: 'open-meteo',
+      description: `Temperature: ${Math.round(data.current.temperature_2m)}°C, Humidity: ${data.current.relative_humidity_2m}%`
     };
 
     console.log('✅ Weather data:', weatherData);
@@ -720,7 +733,7 @@ app.get('/api/weather', async (req, res) => {
     // Return fallback weather data
     res.json({
       temperature: 25,
-      condition: 'sunny',
+      condition: 'clear',
       source: 'fallback'
     });
   }
@@ -819,11 +832,11 @@ app.listen(PORT, () => {
   console.log('   GET    /api/wardrobe         - Get all wardrobe items');
   console.log('   DELETE /api/wardrobe/:id     - Delete an item');
   console.log('   POST   /api/recommend        - Get AI outfit recommendation');
-  console.log('   GET    /api/weather          - Get current weather');
+  console.log('   GET    /api/weather          - Get current weather (Open-Meteo - Free!)');
   console.log('   GET    /api/health           - Health check');
-  console.log('\n⚠️  IMPORTANT: Set your API keys in server.js:');
-  console.log('   - GEMINI_API_KEY (line 48)');
-  console.log('   - OPENWEATHER_API_KEY (line 53)');
+  console.log('\n✅ Using free APIs:');
+  console.log('   - 9 Gemini API keys with auto-retry');
+  console.log('   - Open-Meteo weather (no API key needed)');
   console.log('\n🚀 Ready to accept requests!\n');
 });
 
