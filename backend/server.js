@@ -6,6 +6,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const db = require('./database');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const bcrypt = require('bcryptjs');
@@ -217,6 +218,36 @@ app.put('/api/profile', authenticateToken, (req, res) => {
   );
 });
 
+// ==================== HELPER FUNCTIONS ====================
+
+// Calculate file hash for duplicate detection
+function calculateFileHash(filePath) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const hashSum = crypto.createHash('sha256');
+  hashSum.update(fileBuffer);
+  return hashSum.digest('hex');
+}
+
+// Check if duplicate image exists in wardrobe
+function checkDuplicateImage(userId, fileHash, callback) {
+  db.all('SELECT * FROM wardrobe_items WHERE user_id = ?', [userId], (err, items) => {
+    if (err) {
+      return callback(err, null);
+    }
+
+    for (const item of items) {
+      const itemPath = path.join(__dirname, item.image_path);
+      if (fs.existsSync(itemPath)) {
+        const itemHash = calculateFileHash(itemPath);
+        if (itemHash === fileHash) {
+          return callback(null, item);
+        }
+      }
+    }
+    callback(null, null);
+  });
+}
+
 // ==================== API ROUTES ====================
 
 // 1. Upload clothing item with AI analysis
@@ -231,83 +262,110 @@ app.post('/api/upload', authenticateToken, upload.single('image'), async (req, r
     const imagePath = req.file.path;
     const relativeImagePath = 'uploads/' + req.file.filename;
 
-    // Read image and convert to base64
-    const imageBuffer = fs.readFileSync(imagePath);
-    const base64Image = imageBuffer.toString('base64');
+    // Check for duplicate images
+    const fileHash = calculateFileHash(imagePath);
+    checkDuplicateImage(req.user.id, fileHash, async (err, duplicate) => {
+      if (err) {
+        console.error('❌ Error checking duplicates:', err.message);
+        // Continue anyway - don't block upload
+      }
 
-    console.log('🤖 Analyzing image with Gemini AI...');
+      if (duplicate) {
+        console.log('⚠️ Duplicate image detected:', duplicate.category);
+        // Delete the newly uploaded file since it's a duplicate
+        fs.unlinkSync(imagePath);
+        return res.status(400).json({
+          error: 'This image already exists in your wardrobe!',
+          duplicate: {
+            category: duplicate.category,
+            color: duplicate.color,
+            description: duplicate.description
+          }
+        });
+      }
 
-    // Analyze with Gemini AI
-    const prompt = `You are a witty and intelligent AI fashion assistant with a great sense of humor! Analyze this image.
+      // Read image and convert to base64
+      const imageBuffer = fs.readFileSync(imagePath);
+      const base64Image = imageBuffer.toString('base64');
+
+      console.log('🤖 Analyzing image with Gemini AI...');
+
+      // Analyze with Gemini AI
+      const prompt = `You are a witty and intelligent AI fashion assistant with a great sense of humor! Analyze this image.
 
 FIRST, determine what the image actually contains:
 - If it's a single clothing item: Analyze it normally
 - If it's multiple clothing items: Make a playful comment like "Hmm, am I supposed to pick just one of these? 🤔" or "I see multiple items here - feeling indecisive?"
 - If it's NOT clothing at all: Be clever and funny! Say something like "Are you testing my intelligence by giving me a [whatever you see] thinking this is clothing? 😄" or make a witty observation
 
-For CLOTHING items, choose from: Shirt, T-Shirt, Pants, Jeans, Dress, Shoes, Jacket, Accessories
+For CLOTHING items:
+- Categories: Shirt, T-Shirt, Pants, Jeans, Dress, Shoes, Jacket, Accessories
+- Gender: Determine if the item is typically for Male, Female, or Unisex/Both
 
 Respond with valid JSON in this format:
 {
   "category": "item type (or 'Not Clothing' if applicable)",
   "color": "primary color (or 'N/A')",
+  "gender": "Male, Female, or Unisex (or 'N/A' if not clothing)",
   "description": "Your intelligent, contextual, and potentially humorous response"
 }
 
 Be creative, be funny when appropriate, but always be helpful! If someone uploads random stuff, call them out playfully. If it's legitimate clothing, be professional yet friendly.`;
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          data: base64Image,
-          mimeType: req.file.mimetype
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            data: base64Image,
+            mimeType: req.file.mimetype
+          }
         }
+      ]);
+
+      const response = await result.response;
+      const text = response.text();
+
+      console.log('🤖 AI Response:', text);
+
+      // Extract JSON from response
+      const jsonMatch = text.match(/\{[\s\S]*?\}/);
+      let aiAnalysis;
+
+      if (jsonMatch) {
+        aiAnalysis = JSON.parse(jsonMatch[0]);
+        console.log('✅ AI Analysis:', aiAnalysis);
+      } else {
+        // Fallback if AI doesn't return JSON - but keep the AI's text response
+        aiAnalysis = {
+          category: 'Unknown',
+          color: 'N/A',
+          gender: 'N/A',
+          description: text || 'The AI got confused - maybe try a clearer image? 🤔'
+        };
+        console.log('⚠️ Using fallback with AI text:', text);
       }
-    ]);
 
-    const response = await result.response;
-    const text = response.text();
+      // Save to database
+      db.run(
+        `INSERT INTO wardrobe_items (user_id, category, color, gender, image_path, description) VALUES (?, ?, ?, ?, ?, ?)`,
+        [req.user.id, aiAnalysis.category, aiAnalysis.color, aiAnalysis.gender || 'N/A', relativeImagePath, aiAnalysis.description],
+        function(err) {
+          if (err) {
+            console.error('❌ Database error:', err.message);
+            return res.status(500).json({ error: err.message });
+          }
 
-    console.log('🤖 AI Response:', text);
+          console.log('✅ Item saved to database with ID:', this.lastID);
 
-    // Extract JSON from response
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    let aiAnalysis;
-
-    if (jsonMatch) {
-      aiAnalysis = JSON.parse(jsonMatch[0]);
-      console.log('✅ AI Analysis:', aiAnalysis);
-    } else {
-      // Fallback if AI doesn't return JSON - but keep the AI's text response
-      aiAnalysis = {
-        category: 'Unknown',
-        color: 'N/A',
-        description: text || 'The AI got confused - maybe try a clearer image? 🤔'
-      };
-      console.log('⚠️ Using fallback with AI text:', text);
-    }
-
-    // Save to database
-    db.run(
-      `INSERT INTO wardrobe_items (user_id, category, color, image_path, description) VALUES (?, ?, ?, ?, ?)`,
-      [req.user.id, aiAnalysis.category, aiAnalysis.color, relativeImagePath, aiAnalysis.description],
-      function(err) {
-        if (err) {
-          console.error('❌ Database error:', err.message);
-          return res.status(500).json({ error: err.message });
+          res.json({
+            success: true,
+            id: this.lastID,
+            aiAnalysis: aiAnalysis,
+            imagePath: relativeImagePath
+          });
         }
-
-        console.log('✅ Item saved to database with ID:', this.lastID);
-
-        res.json({
-          success: true,
-          id: this.lastID,
-          aiAnalysis: aiAnalysis,
-          imagePath: relativeImagePath
-        });
-      }
-    );
+      );
+    });
   } catch (error) {
     console.error('❌ Upload error:', error.message);
     res.status(500).json({ error: error.message });
@@ -438,14 +496,16 @@ TASK:
 6. Consider professional requirements if occupation is relevant
 
 CRITICAL OUTFIT RULES:
-- Create a COMPLETE, wearable outfit with both UPPER body (shirt, t-shirt, jacket, dress) AND LOWER body (pants, jeans, skirt) items
+- Create a COMPLETE, wearable outfit with UPPER body AND LOWER body items
 - A complete outfit MUST include:
-  * Upper body clothing (shirt, t-shirt, jacket, or dress)
-  * Lower body clothing (pants, jeans, skirt - UNLESS it's a dress which covers both)
-  * Optional: shoes, accessories, belt, jacket
+  * ONE upper body item (shirt, t-shirt, OR jacket - NOT multiple tops!)
+  * ONE lower body item (pants, jeans, OR skirt - REQUIRED unless wearing a full-length dress)
+  * Optional additions: shoes, accessories, belt, or an outer layer jacket
+- DO NOT select multiple shirts or multiple tops (e.g., "Yellow Shirt + White Shirt" is WRONG!)
 - DO NOT suggest only accessories without core clothing items
 - DO NOT create incomplete outfits (e.g., "shirt + belt + sunglasses" is NOT acceptable!)
-- If the wardrobe lacks essential items to make a complete outfit, you MUST list them in missing_items
+- If the wardrobe lacks PANTS/JEANS/SKIRT (lower body clothing), you MUST add them to missing_items as REQUIRED
+- Jackets/Blazers can be layered OVER a shirt, but don't select multiple base layer tops
 
 IMPORTANT:
 - ONLY pick items from the numbered list above
@@ -454,13 +514,14 @@ IMPORTANT:
 - Suggest missing items that would complete the look
 - Consider cultural dress codes if nationality/location provided
 - Be mindful of professional dress codes for work occasions
+- Keep explanation CONCISE (2-3 sentences max) - focus on key reasons only
 
 Respond with valid JSON:
 {
   "selected_items": [1, 2, 3],
-  "explanation": "Detailed explanation considering their profile, why this outfit works, and how it suits their personal context",
+  "explanation": "Brief 2-3 sentence explanation of why this outfit works for their profile and context",
   "missing_items": ["Item type 1", "Item type 2"],
-  "missing_items_explanation": "Why these items would complete the outfit and specific suggestions for what to buy"
+  "missing_items_explanation": "Concise 1-2 sentence explanation of why these items are needed"
 }`;
 
         console.log('🤖 Asking Gemini AI for intelligent recommendation...');

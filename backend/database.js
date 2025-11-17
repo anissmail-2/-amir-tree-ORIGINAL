@@ -74,6 +74,14 @@ db.serialize(() => {
       console.error('❌ Error creating wardrobe_items table:', err.message);
     } else {
       console.log('✅ Wardrobe table ready');
+
+      // Add gender column to existing table (migration)
+      db.run(`ALTER TABLE wardrobe_items ADD COLUMN gender TEXT`, (alterErr) => {
+        // Ignore error if column already exists
+        if (alterErr && !alterErr.message.includes('duplicate column name')) {
+          console.error('⚠️  Error adding gender column:', alterErr.message);
+        }
+      });
     }
   });
 
