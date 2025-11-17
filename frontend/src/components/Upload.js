@@ -3,78 +3,141 @@ import axios from 'axios';
 import API_BASE_URL from '../config';
 
 function Upload() {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [previews, setPreviews] = useState([]);
+  const [aiAnalyses, setAiAnalyses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [uploadProgress, setUploadProgress] = useState('');
 
   const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    setSelectedFile(file);
-    setPreview(URL.createObjectURL(file));
+    const files = Array.from(e.target.files);
+    setSelectedFiles(files);
+
+    const filePreviews = files.map(file => URL.createObjectURL(file));
+    setPreviews(filePreviews);
+    setAiAnalyses([]);
   };
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setLoading(true);
     setMessage('');
-
-    const formData = new FormData();
-    formData.append('image', selectedFile);
+    setAiAnalyses([]);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/upload`, formData);
-      setAiAnalysis(response.data.aiAnalysis);
-      setMessage('✅ Item uploaded successfully!');
+      const allAnalyses = [];
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        setUploadProgress(`Uploading image ${i + 1} of ${selectedFiles.length}...`);
+
+        const formData = new FormData();
+        formData.append('image', selectedFiles[i]);
+
+        const response = await axios.post(`${API_BASE_URL}/api/upload`, formData);
+        allAnalyses.push({
+          ...response.data.aiAnalysis,
+          imagePath: response.data.imagePath
+        });
+      }
+
+      setAiAnalyses(allAnalyses);
+      setMessage(`✅ ${selectedFiles.length} item(s) uploaded successfully!`);
+
 
       setTimeout(() => {
-        setSelectedFile(null);
-        setPreview(null);
-        setAiAnalysis(null);
+        setSelectedFiles([]);
+        setPreviews([]);
+        setAiAnalyses([]);
         setMessage('');
-      }, 3000);
+        setUploadProgress('');
+      }, 5000);
     } catch (error) {
-      setMessage('❌ Upload failed: ' + error.message);
+      setMessage('❌ Upload failed: ' + (error.response?.data?.error || error.message));
     } finally {
       setLoading(false);
+      setUploadProgress('');
     }
   };
 
   return (
     <div className="upload-box">
-      <h1>Upload Clothing Item</h1>
-      <p>✨ AI will automatically analyze your image</p>
+      <h1>Upload Clothing Items</h1>
+      <p>✨ AI will automatically analyze your images (select multiple!)</p>
 
       <form onSubmit={handleUpload}>
         <input
           type="file"
           accept="image/*"
           onChange={handleFileSelect}
+          multiple
           required
         />
 
-        {preview && (
-          <div className="preview">
-            <img src={preview} alt="Preview" style={{maxWidth: '300px'}} />
+        {previews.length > 0 && (
+          <div className="preview-container" style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: '15px',
+            marginTop: '20px'
+          }}>
+            {previews.map((preview, index) => (
+              <div key={index} className="preview" style={{
+                border: '2px solid #ddd',
+                borderRadius: '8px',
+                padding: '10px'
+              }}>
+                <img src={preview} alt={`Preview ${index + 1}`} style={{
+                  width: '100%',
+                  height: '200px',
+                  objectFit: 'cover',
+                  borderRadius: '5px'
+                }} />
+                <p style={{fontSize: '12px', textAlign: 'center', marginTop: '5px'}}>
+                  Image {index + 1}
+                </p>
+              </div>
+            ))}
           </div>
         )}
 
-        {loading && <p>🤖 AI is analyzing...</p>}
+        {loading && (
+          <div style={{marginTop: '15px'}}>
+            <p>🤖 AI is analyzing...</p>
+            {uploadProgress && <p style={{fontSize: '14px', color: '#666'}}>{uploadProgress}</p>}
+          </div>
+        )}
 
-        {aiAnalysis && (
-          <div className="ai-result">
+        {aiAnalyses.length > 0 && (
+          <div className="ai-results-container" style={{marginTop: '20px'}}>
             <h3>✅ AI Analysis Complete!</h3>
-            <p><strong>Category:</strong> {aiAnalysis.category}</p>
-            <p><strong>Color:</strong> {aiAnalysis.color}</p>
-            <p><strong>Description:</strong> {aiAnalysis.description}</p>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+              gap: '15px',
+              marginTop: '15px'
+            }}>
+              {aiAnalyses.map((analysis, index) => (
+                <div key={index} className="ai-result" style={{
+                  border: '2px solid #4CAF50',
+                  borderRadius: '8px',
+                  padding: '15px',
+                  backgroundColor: '#f9fff9'
+                }}>
+                  <h4 style={{marginTop: 0}}>Item {index + 1}</h4>
+                  <p><strong>Category:</strong> {analysis.category}</p>
+                  <p><strong>Color:</strong> {analysis.color}</p>
+                  <p><strong>Description:</strong> {analysis.description}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        <button type="submit" disabled={!selectedFile || loading}>
-          {loading ? 'Uploading...' : 'Upload Item'}
+        <button type="submit" disabled={selectedFiles.length === 0 || loading} style={{marginTop: '20px'}}>
+          {loading ? 'Uploading...' : `Upload ${selectedFiles.length > 0 ? selectedFiles.length : ''} Item${selectedFiles.length !== 1 ? 's' : ''}`}
         </button>
       </form>
 

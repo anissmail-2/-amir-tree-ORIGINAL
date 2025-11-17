@@ -195,13 +195,23 @@ app.post('/api/upload', authenticateToken, upload.single('image'), async (req, r
     console.log('🤖 Analyzing image with Gemini AI...');
 
     // Analyze with Gemini AI
-    const prompt = `Analyze this clothing item image and provide the following information:
-1. Item Type: Choose EXACTLY one from (Shirt, T-Shirt, Pants, Jeans, Dress, Shoes, Jacket, Accessories)
-2. Primary Color: One word color name
-3. Brief Description: One sentence describing the item
+    const prompt = `You are a witty and intelligent AI fashion assistant with a great sense of humor! Analyze this image.
 
-Respond ONLY with valid JSON in this exact format:
-{"category": "item type", "color": "color name", "description": "brief description"}`;
+FIRST, determine what the image actually contains:
+- If it's a single clothing item: Analyze it normally
+- If it's multiple clothing items: Make a playful comment like "Hmm, am I supposed to pick just one of these? 🤔" or "I see multiple items here - feeling indecisive?"
+- If it's NOT clothing at all: Be clever and funny! Say something like "Are you testing my intelligence by giving me a [whatever you see] thinking this is clothing? 😄" or make a witty observation
+
+For CLOTHING items, choose from: Shirt, T-Shirt, Pants, Jeans, Dress, Shoes, Jacket, Accessories
+
+Respond with valid JSON in this format:
+{
+  "category": "item type (or 'Not Clothing' if applicable)",
+  "color": "primary color (or 'N/A')",
+  "description": "Your intelligent, contextual, and potentially humorous response"
+}
+
+Be creative, be funny when appropriate, but always be helpful! If someone uploads random stuff, call them out playfully. If it's legitimate clothing, be professional yet friendly.`;
 
     const result = await model.generateContent([
       prompt,
@@ -226,13 +236,13 @@ Respond ONLY with valid JSON in this exact format:
       aiAnalysis = JSON.parse(jsonMatch[0]);
       console.log('✅ AI Analysis:', aiAnalysis);
     } else {
-      // Fallback if AI doesn't return JSON
+      // Fallback if AI doesn't return JSON - but keep the AI's text response
       aiAnalysis = {
-        category: 'Accessories',
-        color: 'Unknown',
-        description: 'Could not analyze image automatically'
+        category: 'Unknown',
+        color: 'N/A',
+        description: text || 'The AI got confused - maybe try a clearer image? 🤔'
       };
-      console.log('⚠️ Using fallback analysis');
+      console.log('⚠️ Using fallback with AI text:', text);
     }
 
     // Save to database
@@ -326,16 +336,36 @@ app.post('/api/recommend', authenticateToken, async (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
-      if (items.length < 2) {
-        return res.status(400).json({ error: 'Need at least 2 items in wardrobe to generate recommendation' });
-      }
-
       console.log(`📦 Found ${items.length} items in wardrobe`);
 
       // Create list of items for AI
       const itemsList = items.map(item => `${item.category} (${item.color})`).join(', ');
 
-      const prompt = `You are a professional fashion stylist AI assistant.
+      let prompt;
+
+      if (items.length === 0) {
+        return res.status(400).json({ error: 'Your wardrobe is empty! Upload some clothing items first 👗👔' });
+      } else if (items.length === 1) {
+        // Creative response for single item
+        prompt = `You are a witty fashion AI with a great sense of humor! The user has only ONE item in their wardrobe: ${itemsList}.
+
+Current weather: ${weather.temperature}°C, ${weather.condition}
+Occasion: ${occasion}
+
+Be creative and funny! You could:
+- Suggest what else they should buy to complete an outfit
+- Make a playful comment like "What am I supposed to be creative with? Just this ${items[0].category}? 😅"
+- Give styling tips for how to make that one piece shine
+- Recommend complementary items they should add to their wardrobe
+
+Respond with valid JSON:
+{
+  "recommended_categories": ["${items[0].category}"],
+  "explanation": "Your witty, helpful response that acknowledges they only have one item and provides creative suggestions"
+}`;
+      } else {
+        // Normal recommendation for 2+ items
+        prompt = `You are a professional fashion stylist AI assistant.
 
 Available wardrobe items: ${itemsList}
 
@@ -349,6 +379,7 @@ Respond ONLY with valid JSON in this exact format:
   "recommended_categories": ["category1", "category2"],
   "explanation": "Detailed explanation of why this outfit works for the weather and occasion"
 }`;
+      }
 
       console.log('🤖 Asking Gemini AI for recommendation...');
 

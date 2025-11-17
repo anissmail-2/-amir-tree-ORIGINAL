@@ -31,7 +31,8 @@ function Recommend() {
       });
       setRecommendation(response.data);
     } catch (error) {
-      alert('Recommendation failed: ' + error.message);
+      const errorMessage = error.response?.data?.error || error.message;
+      alert('Recommendation failed: ' + errorMessage);
     } finally {
       setLoading(false);
     }
