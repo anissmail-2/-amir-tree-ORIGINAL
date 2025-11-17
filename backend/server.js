@@ -50,15 +50,77 @@ const upload = multer({
   }
 });
 
-// Gemini AI Configuration
-// API key loaded from .env file
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-if (!GEMINI_API_KEY) {
-  console.error('ERROR: GEMINI_API_KEY not found in .env file');
-  process.exit(1);
+// Gemini AI Configuration - Multiple API Keys for Redundancy
+const API_KEYS = [
+  { key: "AIzaSyCEm1zKOnlASP9AMENd21tkyT1BtHjx5wU", email: "sazman539@gmail.com" },
+  { key: "AIzaSyCvO6ep8lmbzSw5vjTzhiqbkW0Bb3P6wBo", email: "anissmail22@gmail.com" },
+  { key: "AIzaSyDuW4ld6jnO3SPocwJbUK1xTI3oMZs7lVI", email: "anissmail2@gmail.com" },
+  { key: "AIzaSyCPBG-HAP9IzFluhD-YdJZ0AWzVEPVOiOE", email: "agui80759@gmail.com" },
+  { key: "AIzaSyDx4P3eu2OXwZA6cadGdkam53HC8Bf4RiQ", email: "Senfour.anis00@gmail.com" },
+  { key: "AIzaSyBIx8CIMd0Zz04y1R0jNxlScVzU5Z3NZlo", email: "anissmail222@gmail.com" },
+  { key: "AIzaSyDqrMcJ9WkqEahDQpk8iqoLwkCJTPP0cAQ", email: "anis.dk99@gmail.com" },
+  { key: "AIzaSyDPoqXWI-LK6i1UNdqxNLFk8y1weA6xfR0", email: "anissmail534@gmail.com" },
+  { key: "AIzaSyDXhkg9aQdzyOBC1nBlf3ETKON7mEr668M", email: "bah21105@gmail.com" }
+];
+
+let currentKeyIndex = 0;
+
+// Helper function to get next API key
+function getNextApiKey() {
+  const apiKey = API_KEYS[currentKeyIndex];
+  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+  return apiKey;
 }
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+// Helper function to call Gemini with retry logic and multiple keys
+async function callGeminiWithRetry(prompt, imageData = null, maxRetries = 5) {
+  let lastError = null;
+  const startKeyIndex = currentKeyIndex;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const apiKeyInfo = getNextApiKey();
+      console.log(`🔑 Attempt ${attempt + 1}/${maxRetries} - Using API key: ${apiKeyInfo.email}`);
+
+      const genAI = new GoogleGenerativeAI(apiKeyInfo.key);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+      let result;
+      if (imageData) {
+        result = await model.generateContent([prompt, imageData]);
+      } else {
+        result = await model.generateContent(prompt);
+      }
+
+      const response = await result.response;
+      const text = response.text();
+
+      console.log(`✅ Success with API key: ${apiKeyInfo.email}`);
+      return text;
+
+    } catch (error) {
+      lastError = error;
+      console.error(`❌ Attempt ${attempt + 1} failed: ${error.message}`);
+
+      // If it's a 503 (overloaded) or 429 (quota exceeded), try next key
+      if (error.message.includes('503') || error.message.includes('429') ||
+          error.message.includes('overloaded') || error.message.includes('quota')) {
+
+        // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
+        const delay = Math.min(500 * Math.pow(2, attempt), 8000);
+        console.log(`⏳ Waiting ${delay}ms before next attempt...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // For other errors, throw immediately
+      throw error;
+    }
+  }
+
+  // If all retries failed
+  throw new Error(`All ${maxRetries} API attempts failed. Last error: ${lastError?.message || 'Unknown error'}`);
+}
 
 // OpenWeatherMap API Key
 // API key loaded from .env file
@@ -312,20 +374,23 @@ Respond with valid JSON in this format:
 
 Be creative, be funny when appropriate, but always be helpful! If someone uploads random stuff, call them out playfully. If it's legitimate clothing, be professional yet friendly.`;
 
-      const result = await model.generateContent([
-        prompt,
-        {
+      let text;
+      try {
+        text = await callGeminiWithRetry(prompt, {
           inlineData: {
             data: base64Image,
             mimeType: req.file.mimetype
           }
-        }
-      ]);
-
-      const response = await result.response;
-      const text = response.text();
-
-      console.log('🤖 AI Response:', text);
+        });
+        console.log('🤖 AI Response:', text);
+      } catch (error) {
+        console.error('❌ All API attempts failed:', error.message);
+        // Return user-friendly error without crashing
+        return res.status(503).json({
+          error: 'AI service is temporarily unavailable. Please try again in a few moments.',
+          details: 'Our AI analysis service is experiencing high demand. Your image has been saved, but we couldn\'t analyze it right now.'
+        });
+      }
 
       // Extract JSON from response
       const jsonMatch = text.match(/\{[\s\S]*?\}/);
@@ -368,7 +433,19 @@ Be creative, be funny when appropriate, but always be helpful! If someone upload
     });
   } catch (error) {
     console.error('❌ Upload error:', error.message);
-    res.status(500).json({ error: error.message });
+
+    // Graceful error handling - don't crash the server
+    if (error.message.includes('503') || error.message.includes('overloaded')) {
+      return res.status(503).json({
+        error: 'AI service is temporarily overloaded',
+        details: 'Please try uploading again in a few moments.'
+      });
+    }
+
+    res.status(500).json({
+      error: 'An error occurred while processing your upload',
+      details: error.message
+    });
   }
 });
 
@@ -526,11 +603,17 @@ Respond with valid JSON:
 
         console.log('🤖 Asking Gemini AI for intelligent recommendation...');
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-
-        console.log('🤖 AI Response:', text);
+        let text;
+        try {
+          text = await callGeminiWithRetry(prompt);
+          console.log('🤖 AI Response:', text);
+        } catch (error) {
+          console.error('❌ All API attempts failed:', error.message);
+          return res.status(503).json({
+            error: 'AI recommendation service is temporarily unavailable. Please try again in a few moments.',
+            details: 'Our AI service is experiencing high demand right now.'
+          });
+        }
 
         // Extract JSON
         const jsonMatch = text.match(/\{[\s\S]*?\}/);
@@ -585,7 +668,19 @@ Respond with valid JSON:
     });
   } catch (error) {
     console.error('❌ Recommendation error:', error.message);
-    res.status(500).json({ error: error.message });
+
+    // Graceful error handling - don't crash the server
+    if (error.message.includes('503') || error.message.includes('overloaded')) {
+      return res.status(503).json({
+        error: 'AI recommendation service is temporarily overloaded',
+        details: 'Please try again in a few moments.'
+      });
+    }
+
+    res.status(500).json({
+      error: 'An error occurred while generating recommendations',
+      details: error.message
+    });
   }
 });
 
