@@ -329,8 +329,14 @@ app.post('/api/recommend', authenticateToken, async (req, res) => {
     console.log('   Occasion:', occasion);
     console.log('   Weather:', weather);
 
-    // Get all wardrobe items for this user
-    db.all('SELECT * FROM wardrobe_items WHERE user_id = ?', [req.user.id], async (err, items) => {
+    // Get all VALID clothing items for this user (exclude "Not Clothing" and similar)
+    db.all(
+      `SELECT * FROM wardrobe_items
+       WHERE user_id = ?
+       AND category NOT IN ('Not Clothing', 'Unknown', 'N/A')
+       AND category IS NOT NULL`,
+      [req.user.id],
+      async (err, items) => {
       if (err) {
         console.error('❌ Database error:', err.message);
         return res.status(500).json({ error: err.message });
@@ -352,16 +358,18 @@ app.post('/api/recommend', authenticateToken, async (req, res) => {
 Current weather: ${weather.temperature}°C, ${weather.condition}
 Occasion: ${occasion}
 
-Be creative and funny! You could:
-- Suggest what else they should buy to complete an outfit
-- Make a playful comment like "What am I supposed to be creative with? Just this ${items[0].category}? 😅"
-- Give styling tips for how to make that one piece shine
-- Recommend complementary items they should add to their wardrobe
+IMPORTANT: Since they only have ONE item, you MUST suggest what essential items they need to buy to create a complete, wearable outfit!
+
+Be creative and funny! You should:
+- Make a playful comment about having only one item
+- Suggest SPECIFIC complementary items they should add to their wardrobe to create a complete outfit
+- Remember: a complete outfit needs upper body + lower body clothing (unless it's a dress) + optional accessories
 
 Respond with valid JSON:
 {
   "recommended_categories": ["${items[0].category}"],
-  "explanation": "Your witty, helpful response that acknowledges they only have one item and provides creative suggestions"
+  "explanation": "Your witty response that acknowledges they only have one item",
+  "missing_essentials": "List SPECIFIC essential items they need to buy to complete this outfit (e.g., 'black pants or jeans, white sneakers, casual belt')"
 }`;
       } else {
         // Normal recommendation for 2+ items
@@ -372,12 +380,23 @@ Available wardrobe items: ${itemsList}
 Current weather: ${weather.temperature}°C, ${weather.condition}
 Occasion: ${occasion}
 
-Task: Select 2-3 items from the available wardrobe that work well together for this weather and occasion. Explain why this combination is perfect.
+CRITICAL RULES:
+1. Create a COMPLETE, wearable outfit - you MUST include both upper body (shirt, t-shirt, jacket, dress) AND lower body (pants, jeans, skirt) items
+2. Select 3-5 items that create a fully functional outfit someone can actually wear
+3. A complete outfit should typically include:
+   - Upper body clothing (shirt, t-shirt, jacket, or dress)
+   - Lower body clothing (pants, jeans, skirt - UNLESS it's a dress)
+   - Optional: shoes, accessories, belt, jacket
+4. DO NOT suggest only accessories without core clothing items
+5. DO NOT create outfits that are missing essential pieces (e.g., shirt + belt + sunglasses is NOT a complete outfit!)
+
+Task: Select items from the available wardrobe that work well together AND form a complete, wearable outfit for this weather and occasion.
 
 Respond ONLY with valid JSON in this exact format:
 {
-  "recommended_categories": ["category1", "category2"],
-  "explanation": "Detailed explanation of why this outfit works for the weather and occasion"
+  "recommended_categories": ["category1", "category2", "category3"],
+  "explanation": "Detailed explanation of why this outfit works for the weather and occasion",
+  "missing_essentials": "List any essential items missing from the wardrobe needed to complete this look (e.g., 'pants', 'shoes')"
 }`;
       }
 
@@ -429,6 +448,7 @@ Respond ONLY with valid JSON in this exact format:
         res.json({
           items: selectedItems,
           explanation: recommendation.explanation,
+          missing_essentials: recommendation.missing_essentials || null,
           weather: weather,
           occasion: occasion
         });

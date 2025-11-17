@@ -85,7 +85,25 @@ function Recommend() {
           <div className="ai-explanation">
             <h3>🤖 AI Stylist Explanation:</h3>
             <p>{recommendation.explanation}</p>
-            <p style={{fontSize: '12px', color: '#666'}}>
+
+            {recommendation.missing_essentials && (
+              <div style={{
+                marginTop: '15px',
+                padding: '15px',
+                backgroundColor: '#fff3cd',
+                borderLeft: '4px solid #ffc107',
+                borderRadius: '4px'
+              }}>
+                <h4 style={{margin: '0 0 10px 0', color: '#856404'}}>
+                  🛍️ Missing Essentials to Complete Your Look:
+                </h4>
+                <p style={{margin: 0, color: '#856404'}}>
+                  {recommendation.missing_essentials}
+                </p>
+              </div>
+            )}
+
+            <p style={{fontSize: '12px', color: '#666', marginTop: '15px'}}>
               Powered by Gemini 2.0 Flash + OpenWeatherMap API
             </p>
           </div>
