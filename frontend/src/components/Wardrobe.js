@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 function Wardrobe() {
   const [items, setItems] = useState([]);
@@ -11,7 +12,7 @@ function Wardrobe() {
 
   const loadWardrobe = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/wardrobe');
+      const response = await axios.get(`${API_BASE_URL}/api/wardrobe`);
       setItems(response.data);
     } catch (error) {
       console.error('Error loading wardrobe:', error);
@@ -23,7 +24,7 @@ function Wardrobe() {
   const handleDelete = async (id) => {
     if (window.confirm('Delete this item?')) {
       try {
-        await axios.delete(`http://localhost:5000/api/wardrobe/${id}`);
+        await axios.delete(`${API_BASE_URL}/api/wardrobe/${id}`);
         loadWardrobe();
       } catch (error) {
         alert('Delete failed: ' + error.message);
@@ -44,7 +45,7 @@ function Wardrobe() {
           {items.map(item => (
             <div key={item.id} className="item-card">
               <img
-                src={`http://localhost:5000/${item.image_path}`}
+                src={`${API_BASE_URL}/${item.image_path}`}
                 alt={item.category}
               />
               <div className="item-info">

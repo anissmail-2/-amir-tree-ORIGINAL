@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 function Upload() {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -25,7 +26,7 @@ function Upload() {
     formData.append('image', selectedFile);
 
     try {
-      const response = await axios.post('http://localhost:5000/api/upload', formData);
+      const response = await axios.post(`${API_BASE_URL}/api/upload`, formData);
       setAiAnalysis(response.data.aiAnalysis);
       setMessage('✅ Item uploaded successfully!');
 

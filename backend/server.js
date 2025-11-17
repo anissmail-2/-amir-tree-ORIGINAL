@@ -8,6 +8,8 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./database');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = 5000;
@@ -51,19 +53,131 @@ const upload = multer({
 });
 
 // Gemini AI Configuration
-// IMPORTANT: Replace with your actual API key!
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyCjbcdTSnEEY5Ja3ud1KdyAaj93zMRYs1wRE';
+// API key loaded from .env file
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+if (!GEMINI_API_KEY) {
+  console.error('ERROR: GEMINI_API_KEY not found in .env file');
+  process.exit(1);
+}
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
 // OpenWeatherMap API Key
-// IMPORTANT: Replace with your actual API key!
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || '8eb8363ac6521e90ef4664dd5b00ae39';
+// API key loaded from .env file
+const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
+if (!OPENWEATHER_API_KEY) {
+  console.error('ERROR: OPENWEATHER_API_KEY not found in .env file');
+  process.exit(1);
+}
+
+// JWT Secret
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// ==================== MIDDLEWARE ====================
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// ==================== AUTHENTICATION ROUTES ====================
+
+// Signup endpoint
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert user
+    db.run(
+      'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+      [username, email, hashedPassword],
+      function(err) {
+        if (err) {
+          if (err.message.includes('UNIQUE')) {
+            return res.status(400).json({ error: 'Username or email already exists' });
+          }
+          return res.status(500).json({ error: 'Error creating user' });
+        }
+
+        // Generate token
+        const token = jwt.sign({ id: this.lastID, username }, JWT_SECRET, { expiresIn: '7d' });
+
+        res.status(201).json({
+          message: 'User created successfully',
+          token,
+          user: { id: this.lastID, username, email }
+        });
+      }
+    );
+  } catch (error) {
+    console.error('❌ Signup error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Login endpoint
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
+      if (err) {
+        return res.status(500).json({ error: 'Server error' });
+      }
+
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Verify password
+      const validPassword = await bcrypt.compare(password, user.password);
+      if (!validPassword) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // Generate token
+      const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+
+      res.json({
+        message: 'Login successful',
+        token,
+        user: { id: user.id, username: user.username, email: user.email }
+      });
+    });
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // ==================== API ROUTES ====================
 
 // 1. Upload clothing item with AI analysis
-app.post('/api/upload', upload.single('image'), async (req, res) => {
+app.post('/api/upload', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
@@ -123,8 +237,8 @@ Respond ONLY with valid JSON in this exact format:
 
     // Save to database
     db.run(
-      `INSERT INTO wardrobe_items (category, color, image_path, description) VALUES (?, ?, ?, ?)`,
-      [aiAnalysis.category, aiAnalysis.color, relativeImagePath, aiAnalysis.description],
+      `INSERT INTO wardrobe_items (user_id, category, color, image_path, description) VALUES (?, ?, ?, ?, ?)`,
+      [req.user.id, aiAnalysis.category, aiAnalysis.color, relativeImagePath, aiAnalysis.description],
       function(err) {
         if (err) {
           console.error('❌ Database error:', err.message);
@@ -148,10 +262,10 @@ Respond ONLY with valid JSON in this exact format:
 });
 
 // 2. Get all wardrobe items
-app.get('/api/wardrobe', (req, res) => {
-  console.log('📋 Fetching all wardrobe items...');
+app.get('/api/wardrobe', authenticateToken, (req, res) => {
+  console.log('📋 Fetching wardrobe items for user:', req.user.id);
 
-  db.all('SELECT * FROM wardrobe_items ORDER BY created_at DESC', (err, rows) => {
+  db.all('SELECT * FROM wardrobe_items WHERE user_id = ? ORDER BY created_at DESC', [req.user.id], (err, rows) => {
     if (err) {
       console.error('❌ Database error:', err.message);
       return res.status(500).json({ error: err.message });
@@ -163,12 +277,12 @@ app.get('/api/wardrobe', (req, res) => {
 });
 
 // 3. Delete wardrobe item
-app.delete('/api/wardrobe/:id', (req, res) => {
+app.delete('/api/wardrobe/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   console.log('🗑️ Deleting item:', id);
 
   // Get image path first to delete file
-  db.get('SELECT image_path FROM wardrobe_items WHERE id = ?', [id], (err, row) => {
+  db.get('SELECT image_path FROM wardrobe_items WHERE id = ? AND user_id = ?', [id, req.user.id], (err, row) => {
     if (err) {
       console.error('❌ Database error:', err.message);
       return res.status(500).json({ error: err.message });
@@ -184,7 +298,7 @@ app.delete('/api/wardrobe/:id', (req, res) => {
     }
 
     // Delete from database
-    db.run('DELETE FROM wardrobe_items WHERE id = ?', [id], function(err) {
+    db.run('DELETE FROM wardrobe_items WHERE id = ? AND user_id = ?', [id, req.user.id], function(err) {
       if (err) {
         console.error('❌ Database error:', err.message);
         return res.status(500).json({ error: err.message });
@@ -197,7 +311,7 @@ app.delete('/api/wardrobe/:id', (req, res) => {
 });
 
 // 4. Get AI outfit recommendation
-app.post('/api/recommend', async (req, res) => {
+app.post('/api/recommend', authenticateToken, async (req, res) => {
   try {
     const { occasion, weather } = req.body;
 
@@ -205,8 +319,8 @@ app.post('/api/recommend', async (req, res) => {
     console.log('   Occasion:', occasion);
     console.log('   Weather:', weather);
 
-    // Get all wardrobe items
-    db.all('SELECT * FROM wardrobe_items', async (err, items) => {
+    // Get all wardrobe items for this user
+    db.all('SELECT * FROM wardrobe_items WHERE user_id = ?', [req.user.id], async (err, items) => {
       if (err) {
         console.error('❌ Database error:', err.message);
         return res.status(500).json({ error: err.message });
@@ -265,6 +379,21 @@ Respond ONLY with valid JSON in this exact format:
         }
 
         console.log(`✅ Selected ${selectedItems.length} matching items`);
+
+        // Save to outfit history
+        const outfit_items_json = JSON.stringify(selectedItems.map(item => item.id));
+        db.run(
+          `INSERT INTO outfit_history (user_id, occasion, weather_temp, weather_condition, outfit_items, ai_explanation)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [req.user.id, occasion, weather.temperature, weather.condition, outfit_items_json, recommendation.explanation],
+          (err) => {
+            if (err) {
+              console.error('⚠️ Error saving outfit history:', err.message);
+            } else {
+              console.log('✅ Outfit saved to history');
+            }
+          }
+        );
 
         res.json({
           items: selectedItems,
@@ -325,7 +454,72 @@ app.get('/api/weather', async (req, res) => {
   }
 });
 
-// 6. Health check endpoint
+// 6. Get outfit history
+app.get('/api/outfit-history', authenticateToken, (req, res) => {
+  console.log('📜 Fetching outfit history for user:', req.user.id);
+
+  db.all(
+    'SELECT * FROM outfit_history WHERE user_id = ? ORDER BY worn_date DESC LIMIT 20',
+    [req.user.id],
+    (err, rows) => {
+      if (err) {
+        console.error('❌ Database error:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log(`✅ Found ${rows.length} outfit history items`);
+      res.json(rows);
+    }
+  );
+});
+
+// 7. Get analytics/sustainability metrics
+app.get('/api/analytics', authenticateToken, (req, res) => {
+  console.log('📊 Fetching analytics for user:', req.user.id);
+
+  // Get total items
+  db.get('SELECT COUNT(*) as total FROM wardrobe_items WHERE user_id = ?', [req.user.id], (err, countRow) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    // Get underused items (not worn in 30+ days or never worn)
+    db.all(
+      `SELECT * FROM wardrobe_items
+       WHERE user_id = ? AND (last_worn IS NULL OR julianday('now') - julianday(last_worn) > 30)
+       ORDER BY wear_count ASC, created_at DESC`,
+      [req.user.id],
+      (err, underusedItems) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        // Get most worn items
+        db.all(
+          'SELECT * FROM wardrobe_items WHERE user_id = ? AND wear_count > 0 ORDER BY wear_count DESC LIMIT 5',
+          [req.user.id],
+          (err, mostWorn) => {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+
+            const analytics = {
+              totalItems: countRow.total,
+              underusedItems: underusedItems,
+              mostWornItems: mostWorn || [],
+              usageRate: countRow.total > 0 ? ((mostWorn.length / countRow.total) * 100).toFixed(1) : 0
+            };
+
+            console.log('✅ Analytics:', analytics);
+            res.json(analytics);
+          }
+        );
+      }
+    );
+  });
+});
+
+// 8. Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 function Recommend() {
   const [occasion, setOccasion] = useState('Casual');
@@ -13,7 +14,7 @@ function Recommend() {
 
   const loadWeather = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/weather');
+      const response = await axios.get(`${API_BASE_URL}/api/weather`);
       setWeather(response.data);
     } catch (error) {
       console.error('Weather error:', error);
@@ -24,7 +25,7 @@ function Recommend() {
   const generateOutfit = async () => {
     setLoading(true);
     try {
-      const response = await axios.post('http://localhost:5000/api/recommend', {
+      const response = await axios.post(`${API_BASE_URL}/api/recommend`, {
         occasion,
         weather
       });
@@ -71,7 +72,7 @@ function Recommend() {
             {recommendation.items.map(item => (
               <div key={item.id} className="outfit-item">
                 <img
-                  src={`http://localhost:5000/${item.image_path}`}
+                  src={`${API_BASE_URL}/${item.image_path}`}
                   alt={item.category}
                 />
                 <p><strong>{item.category}</strong></p>
