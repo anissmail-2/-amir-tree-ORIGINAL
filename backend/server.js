@@ -381,8 +381,14 @@ app.post('/api/recommend', authenticateToken, async (req, res) => {
 
       console.log('👤 User profile:', profile);
 
-      // Get all wardrobe items for this user
-      db.all('SELECT * FROM wardrobe_items WHERE user_id = ?', [req.user.id], async (err, items) => {
+      // Get all VALID clothing items for this user (exclude "Not Clothing" and similar)
+      db.all(
+        `SELECT * FROM wardrobe_items
+         WHERE user_id = ?
+         AND category NOT IN ('Not Clothing', 'Unknown', 'N/A')
+         AND category IS NOT NULL`,
+        [req.user.id],
+        async (err, items) => {
         if (err) {
           console.error('❌ Database error:', err.message);
           return res.status(500).json({ error: err.message });
@@ -426,10 +432,20 @@ Occasion: ${occasion}
 TASK:
 1. Analyze the user's profile (age, gender, occupation, culture, location) to understand their style needs
 2. Consider the weather and occasion requirements
-3. Select 2-4 items from the AVAILABLE WARDROBE that create a complete, appropriate outfit
+3. Select 3-5 items from the AVAILABLE WARDROBE that create a COMPLETE, wearable outfit
 4. Identify ANY missing items that would complete or enhance this outfit (items NOT in their wardrobe)
 5. Provide culturally sensitive and age-appropriate suggestions
 6. Consider professional requirements if occupation is relevant
+
+CRITICAL OUTFIT RULES:
+- Create a COMPLETE, wearable outfit with both UPPER body (shirt, t-shirt, jacket, dress) AND LOWER body (pants, jeans, skirt) items
+- A complete outfit MUST include:
+  * Upper body clothing (shirt, t-shirt, jacket, or dress)
+  * Lower body clothing (pants, jeans, skirt - UNLESS it's a dress which covers both)
+  * Optional: shoes, accessories, belt, jacket
+- DO NOT suggest only accessories without core clothing items
+- DO NOT create incomplete outfits (e.g., "shirt + belt + sunglasses" is NOT acceptable!)
+- If the wardrobe lacks essential items to make a complete outfit, you MUST list them in missing_items
 
 IMPORTANT:
 - ONLY pick items from the numbered list above
