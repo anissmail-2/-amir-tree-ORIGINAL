@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import API_BASE_URL from '../config';
 
@@ -9,6 +9,14 @@ function Upload() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [uploadProgress, setUploadProgress] = useState('');
+  const resultsRef = useRef(null);
+
+  // Scroll to results when AI analysis completes
+  useEffect(() => {
+    if (aiAnalyses.length > 0 && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [aiAnalyses]);
 
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files);
@@ -45,15 +53,6 @@ function Upload() {
 
       setAiAnalyses(allAnalyses);
       setMessage(`✅ ${selectedFiles.length} item(s) uploaded successfully!`);
-
-
-      setTimeout(() => {
-        setSelectedFiles([]);
-        setPreviews([]);
-        setAiAnalyses([]);
-        setMessage('');
-        setUploadProgress('');
-      }, 5000);
     } catch (error) {
       setMessage('❌ Upload failed: ' + (error.response?.data?.error || error.message));
     } finally {
@@ -111,7 +110,7 @@ function Upload() {
         )}
 
         {aiAnalyses.length > 0 && (
-          <div className="ai-results-container" style={{marginTop: '20px'}}>
+          <div ref={resultsRef} className="ai-results-container" style={{marginTop: '20px', paddingTop: '10px'}}>
             <h3>✅ AI Analysis Complete!</h3>
             <div style={{
               display: 'grid',
@@ -132,6 +131,28 @@ function Upload() {
                   <p><strong>Description:</strong> {analysis.description}</p>
                 </div>
               ))}
+            </div>
+            <div style={{marginTop: '20px', textAlign: 'center'}}>
+              <button
+                onClick={() => {
+                  setSelectedFiles([]);
+                  setPreviews([]);
+                  setAiAnalyses([]);
+                  setMessage('');
+                  document.querySelector('input[type="file"]').value = '';
+                }}
+                style={{
+                  backgroundColor: '#2196F3',
+                  color: 'white',
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
+              >
+                📤 Upload More Items
+              </button>
             </div>
           </div>
         )}
